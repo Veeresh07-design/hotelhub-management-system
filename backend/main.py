@@ -1,6 +1,41 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+from app.api.room import router as room_router
+from app.api.guest import router as guest_router
+from app.api.booking import router as booking_router
+from app.api.auth import router as auth_router
+from app.api.bill import router as bill_router
+from app.api.menu import router as menu_router
+from app.api.restaurant_order import router as restaurant_order_router
+from app.api.order_item import router as order_item_router
+from app.api.dashboard import router as dashboard_router
+from app.api.reports import router as reports_router
+
+app = FastAPI(
+    title="HotelHub Management System API",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(room_router)
+app.include_router(guest_router)
+app.include_router(booking_router)
+app.include_router(auth_router)
+app.include_router(bill_router)
+app.include_router(menu_router)
+app.include_router(restaurant_order_router)
+app.include_router(order_item_router)
+app.include_router(dashboard_router)
+app.include_router(reports_router)
 
 @app.get("/")
 def home():

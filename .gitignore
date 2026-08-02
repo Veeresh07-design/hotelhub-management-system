@@ -219,3 +219,11 @@ __marimo__/
 # HotelHub
 backend/venv/
 .vscode/
+
+venv/
+__pycache__/
+*.pyc
+hotelhub.db
+backend/hotelhub.db
+node_modules/
+.env
