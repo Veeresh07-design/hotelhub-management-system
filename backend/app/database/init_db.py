@@ -1,6 +1,8 @@
+
 from app.models.base import Base
 from app.database.database import engine
 
+# Import models so SQLAlchemy registers their tables
 from app.models.room import Room
 from app.models.guest import Guest
 from app.models.booking import Booking
@@ -11,4 +13,10 @@ from app.models.restaurant_order import RestaurantOrder
 from app.models.order_item import OrderItem
 from app.models.housekeeping import Housekeeping
 
-Base.metadata.create_all(bind=engine)
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+
+
+if __name__ == "__main__":
+    init_db()

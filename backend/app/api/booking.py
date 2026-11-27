@@ -1,14 +1,13 @@
-
+import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 from app.models.booking import Booking
 from app.models.room import Room
 from app.models.guest import Guest
-from app.models.user import User
 from app.models.bill import Bill
 from app.models.housekeeping import Housekeeping
 from app.models.restaurant_order import RestaurantOrder
@@ -19,15 +18,15 @@ from app.auth.jwt_handler import get_current_admin
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-# ADMIN: View all bookings with complete guest and room details
+# ADMIN: View all bookings with guest and room details
 @router.get("/bookings")
 def get_bookings(
     current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-
     bookings = db.query(Booking).all()
 
     result = []
@@ -42,20 +41,17 @@ def get_bookings(
         ).first()
 
         result.append({
-            # Booking information
             "id": booking.id,
             "booking_id": booking.id,
             "check_in": booking.check_in,
             "check_out": booking.check_out,
             "status": booking.status,
 
-            # Guest information
             "guest_id": booking.guest_id,
             "guest_name": guest.guest_name if guest else "Unknown",
             "guest_phone": guest.phone if guest else "",
             "guest_email": guest.email if guest else "",
 
-            # Room information
             "room_id": booking.room_id,
             "room_number": room.room_number if room else None,
             "room_type": room.room_type if room else "Unknown",
@@ -63,10 +59,8 @@ def get_bookings(
             "price": room.price if room else None,
             "room_status": room.status if room else "Unknown",
 
-            # Customer account information
             "user_id": booking.user_id,
 
-            # Payment information
             "payment_method": booking.payment_method,
             "payment_status": booking.payment_status
         })
@@ -75,12 +69,13 @@ def get_bookings(
 
 
 # ADMIN: Create booking
-@router.post("/bookings")
+@router.post("/bookings", status_code=status.HTTP_201_CREATED)
 def create_booking(
     booking: BookingCreate,
     current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
+    # Validate room
     db_room = db.query(Room).filter(
         Room.id == booking.room_id
     ).first()
@@ -91,12 +86,25 @@ def create_booking(
             detail="Room not found"
         )
 
+    # Validate guest
+    db_guest = db.query(Guest).filter(
+        Guest.id == booking.guest_id
+    ).first()
+
+    if not db_guest:
+        raise HTTPException(
+            status_code=404,
+            detail="Guest not found"
+        )
+
+    # Validate dates
     if booking.check_out <= booking.check_in:
         raise HTTPException(
             status_code=400,
             detail="Invalid booking dates"
         )
 
+    # Check overlapping bookings
     overlapping = db.query(Booking).filter(
         Booking.room_id == booking.room_id,
         Booking.check_in < booking.check_out,
@@ -114,6 +122,7 @@ def create_booking(
             detail="Room already booked for these dates"
         )
 
+    # Check room status
     if db_room.status in [
         "Maintenance",
         "Cleaning",
@@ -132,9 +141,19 @@ def create_booking(
         status=booking.status
     )
 
-    db.add(new_booking)
-    db.commit()
-    db.refresh(new_booking)
+    try:
+        db.add(new_booking)
+        db.commit()
+        db.refresh(new_booking)
+
+    except Exception:
+        db.rollback()
+        logger.exception("Error creating booking")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to create booking"
+        )
 
     return {
         "message": "Booking created successfully",
@@ -160,16 +179,89 @@ def update_booking(
             detail="Booking not found"
         )
 
+    # Prevent modifying checked-in or completed bookings
+    if existing.status in ["Checked In", "Checked Out"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot modify a booking that is checked in or checked out"
+        )
+
+    # Validate guest
+    guest = db.query(Guest).filter(
+        Guest.id == booking.guest_id
+    ).first()
+
+    if not guest:
+        raise HTTPException(
+            status_code=404,
+            detail="Guest not found"
+        )
+
+    # Validate room
+    room = db.query(Room).filter(
+        Room.id == booking.room_id
+    ).first()
+
+    if not room:
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found"
+        )
+
+    changing_room = existing.room_id != booking.room_id
+
+    if changing_room and room.status in [
+        "Maintenance",
+        "Cleaning",
+        "Out of Service",
+        "Occupied"
+    ]:
+        raise HTTPException(
+            status_code=409,
+            detail="Room is not available"
+        )
+
+    # Check overlapping bookings, excluding current booking
+    overlapping = db.query(Booking).filter(
+        Booking.room_id == booking.room_id,
+        Booking.id != booking_id,
+        Booking.check_in < booking.check_out,
+        Booking.check_out > booking.check_in,
+        Booking.status.notin_([
+            "Cancelled",
+            "Canceled",
+            "Checked Out"
+        ])
+    ).first()
+
+    if overlapping:
+        raise HTTPException(
+            status_code=409,
+            detail="Room already booked for these dates"
+        )
+
     existing.guest_id = booking.guest_id
     existing.room_id = booking.room_id
     existing.check_in = booking.check_in
     existing.check_out = booking.check_out
     existing.status = booking.status
 
-    db.commit()
+    try:
+        db.commit()
+        db.refresh(existing)
+
+    except Exception:
+        db.rollback()
+        logger.exception("Error updating booking")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to update booking"
+        )
 
     return {
-        "message": "Booking updated successfully"
+        "message": "Booking updated successfully",
+        "booking_id": existing.id
     }
 
 
@@ -190,8 +282,18 @@ def delete_booking(
             detail="Booking not found"
         )
 
-    db.delete(existing)
-    db.commit()
+    try:
+        db.delete(existing)
+        db.commit()
+
+    except Exception:
+        db.rollback()
+        logger.exception("Error deleting booking")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to delete booking"
+        )
 
     return {
         "message": "Booking deleted successfully"
@@ -231,10 +333,31 @@ def check_in(
             detail="Room not found"
         )
 
-    booking.status = "Checked In"
-    room.status = "Occupied"
+    if room.status in [
+        "Maintenance",
+        "Cleaning",
+        "Out of Service",
+        "Occupied"
+    ]:
+        raise HTTPException(
+            status_code=409,
+            detail="Room is not available for check-in"
+        )
 
-    db.commit()
+    try:
+        booking.status = "Checked In"
+        room.status = "Occupied"
+
+        db.commit()
+
+    except Exception:
+        db.rollback()
+        logger.exception("Error during guest check-in")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to complete check-in"
+        )
 
     return {
         "message": "Guest checked in successfully"
@@ -276,6 +399,27 @@ def check_out(
         )
 
     try:
+        # Validate booking duration
+        check_in_date = datetime.strptime(
+            booking.check_in,
+            "%Y-%m-%d"
+        )
+
+        check_out_date = datetime.strptime(
+            booking.check_out,
+            "%Y-%m-%d"
+        )
+
+        number_of_days = (
+            check_out_date - check_in_date
+        ).days
+
+        if number_of_days <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid booking duration"
+            )
+
         # Update booking and room status
         booking.status = "Checked Out"
         room.status = "Cleaning"
@@ -296,72 +440,57 @@ def check_out(
             )
             db.add(task)
 
+        # Calculate room charge
+        room_charge = room.price * number_of_days
+
+        # Calculate restaurant charges
+        restaurant_orders = db.query(
+            RestaurantOrder
+        ).filter(
+            RestaurantOrder.booking_id == booking.id
+        ).all()
+
+        restaurant_charge = 0
+
+        for order in restaurant_orders:
+            items = db.query(OrderItem).filter(
+                OrderItem.restaurant_order_id == order.id
+            ).all()
+
+            restaurant_charge += sum(
+                item.subtotal for item in items
+            )
+
+        total_amount = room_charge + restaurant_charge
+
         # Check whether bill already exists
         existing_bill = db.query(Bill).filter(
             Bill.booking_id == booking.id
         ).first()
 
         if existing_bill:
-            # Keep existing bill payment status synchronized
+            existing_bill.room_charge = room_charge
+            existing_bill.restaurant_charge = restaurant_charge
+            existing_bill.total_amount = total_amount
             existing_bill.payment_status = (
-                booking.payment_status or "Pending"
+                booking.payment_status
+                or existing_bill.payment_status
+                or "Pending"
             )
 
         else:
-            # Calculate number of nights
-            check_in_date = datetime.strptime(
-                booking.check_in,
-                "%Y-%m-%d"
-            )
-
-            check_out_date = datetime.strptime(
-                booking.check_out,
-                "%Y-%m-%d"
-            )
-
-            number_of_days = (
-                check_out_date - check_in_date
-            ).days
-
-            if number_of_days <= 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid booking duration"
-                )
-
-            # Calculate room charge
-            room_charge = room.price * number_of_days
-
-            # Get restaurant orders linked to this booking
-            restaurant_orders = db.query(
-                RestaurantOrder
-            ).filter(
-                RestaurantOrder.booking_id == booking.id
-            ).all()
-
-            restaurant_charge = 0
-
-            for order in restaurant_orders:
-                items = db.query(OrderItem).filter(
-                    OrderItem.restaurant_order_id == order.id
-                ).all()
-
-                restaurant_charge += sum(
-                    item.subtotal for item in items
-                )
-
-            # Generate bill
             new_bill = Bill(
                 booking_id=booking.id,
                 room_charge=room_charge,
                 restaurant_charge=restaurant_charge,
-                total_amount=room_charge + restaurant_charge,
+                total_amount=total_amount,
                 payment_status=booking.payment_status or "Pending"
             )
 
             db.add(new_bill)
 
         db.commit()
+        db.refresh(booking)
 
         return {
             "message": "Guest checked out successfully. Bill generated.",
@@ -375,12 +504,13 @@ def check_out(
         db.rollback()
         raise
 
-    except Exception as e:
+    except Exception:
         db.rollback()
+        logger.exception("Booking checkout failed")
 
         raise HTTPException(
             status_code=500,
-            detail=f"Checkout failed: {str(e)}"
+            detail="Checkout failed. Please try again."
         )
 
 
@@ -400,12 +530,12 @@ def search_bookings(
             Booking.status == status
         )
 
-    if guest_id:
+    if guest_id is not None:
         query = query.filter(
             Booking.guest_id == guest_id
         )
 
-    if room_id:
+    if room_id is not None:
         query = query.filter(
             Booking.room_id == room_id
         )
@@ -420,8 +550,6 @@ def update_booking_payment(
     current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-
-    # Find booking
     booking = db.query(Booking).filter(
         Booking.id == booking_id
     ).first()
@@ -432,21 +560,18 @@ def update_booking_payment(
             detail="Booking not found"
         )
 
-    # Check booking status
     if booking.status in ["Cancelled", "Canceled"]:
         raise HTTPException(
             status_code=400,
             detail="Cannot collect payment for a cancelled booking"
         )
 
-    # Check payment method
     if booking.payment_method != "Pay at Hotel":
         raise HTTPException(
             status_code=400,
             detail="Only Pay at Hotel payments can be updated manually"
         )
 
-    # Check current payment status
     if booking.payment_status == "Paid":
         raise HTTPException(
             status_code=400,
@@ -454,7 +579,6 @@ def update_booking_payment(
         )
 
     try:
-        # Update booking payment
         booking.payment_status = "Paid"
 
         # Update corresponding bill if it exists
@@ -477,6 +601,7 @@ def update_booking_payment(
 
     except Exception:
         db.rollback()
+        logger.exception("Error updating booking payment")
 
         raise HTTPException(
             status_code=500,

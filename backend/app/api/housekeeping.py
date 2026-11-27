@@ -1,9 +1,11 @@
 
+import logging
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -11,7 +13,9 @@ from app.models.housekeeping import Housekeeping
 from app.models.room import Room
 from app.auth.jwt_handler import get_current_admin
 
+
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # Request models
@@ -78,20 +82,40 @@ def assign_staff(
 
     if not task:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Housekeeping task not found"
         )
 
     if task.status == "Completed":
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot assign a completed task"
         )
 
-    task.assigned_to = assignment.assigned_to
+    try:
+        task.assigned_to = assignment.assigned_to.strip()
 
-    db.commit()
-    db.refresh(task)
+        if len(task.assigned_to) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Staff name must contain at least 2 characters"
+            )
+
+        db.commit()
+        db.refresh(task)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Error assigning housekeeping staff")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to assign housekeeping staff"
+        )
 
     return {
         "message": "Staff assigned successfully",
@@ -114,43 +138,54 @@ def update_housekeeping_status(
 
     if not task:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Housekeeping task not found"
         )
 
     if task.status == "Completed":
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Task is already completed"
         )
 
     if update.status == "Completed" and task.status != "In Progress":
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Task must be In Progress before completion"
         )
 
-    if update.status == "In Progress":
-        if task.status != "Pending":
-            raise HTTPException(
-                status_code=400,
-                detail="Only pending tasks can be started"
-            )
+    if update.status == "In Progress" and task.status != "Pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only pending tasks can be started"
+        )
 
-    task.status = update.status
+    try:
+        task.status = update.status
 
-    if update.status == "Completed":
-        task.completed_at = datetime.utcnow()
+        if update.status == "Completed":
+            task.completed_at = datetime.utcnow()
 
-        room = db.query(Room).filter(
-            Room.id == task.room_id
-        ).first()
+            room = db.query(Room).filter(
+                Room.id == task.room_id
+            ).first()
 
-        if room:
-            room.status = "Available"
+            # Mark room available only if it is currently being cleaned.
+            # Do not overwrite Maintenance or Out of Service status.
+            if room and room.status == "Cleaning":
+                room.status = "Available"
 
-    db.commit()
-    db.refresh(task)
+        db.commit()
+        db.refresh(task)
+
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Error updating housekeeping status")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update housekeeping status"
+        )
 
     return {
         "message": "Housekeeping status updated successfully",

@@ -1,5 +1,8 @@
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -11,6 +14,8 @@ from app.auth.jwt_handler import get_current_customer
 from app.schemas.customer_booking import CustomerBookingCreate
 
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -19,20 +24,25 @@ def get_customer_profile(
     current_user: dict = Depends(get_current_customer),
     db: Session = Depends(get_db)
 ):
-    
     user = db.query(User).filter(
         User.email == current_user["email"]
     ).first()
 
     if not user:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Customer not found"
+        )
 
     guest = db.query(Guest).filter(
         Guest.user_id == user.id
     ).first()
 
     if not guest:
-        raise HTTPException(status_code=404, detail="Guest profile not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Guest profile not found"
+        )
 
     return {
         "id": user.id,
@@ -48,13 +58,15 @@ def get_customer_bookings(
     current_user: dict = Depends(get_current_customer),
     db: Session = Depends(get_db)
 ):
-
     user = db.query(User).filter(
         User.email == current_user["email"]
     ).first()
 
     if not user:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Customer not found"
+        )
 
     bookings = db.query(Booking).filter(
         Booking.user_id == user.id
@@ -69,20 +81,25 @@ def create_customer_booking(
     current_user: dict = Depends(get_current_customer),
     db: Session = Depends(get_db)
 ):
-
     user = db.query(User).filter(
         User.email == current_user["email"]
     ).first()
 
     if not user:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Customer not found"
+        )
 
     guest = db.query(Guest).filter(
         Guest.user_id == user.id
     ).first()
 
     if not guest:
-        raise HTTPException(status_code=404, detail="Guest profile not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Guest profile not found"
+        )
 
     if booking.check_out <= booking.check_in:
         raise HTTPException(
@@ -95,7 +112,10 @@ def create_customer_booking(
     ).first()
 
     if not room:
-        raise HTTPException(status_code=404, detail="Room not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Room not found"
+        )
 
     if room.status in ["Maintenance", "Cleaning", "Out of Service"]:
         raise HTTPException(
@@ -134,6 +154,11 @@ def create_customer_booking(
         db.commit()
         db.refresh(new_booking)
 
+        logger.info(
+            "Customer booking created successfully. Booking ID: %s",
+            new_booking.id
+        )
+
         return {
             "message": "Reservation created successfully",
             "booking_id": new_booking.id,
@@ -145,8 +170,10 @@ def create_customer_booking(
             "payment_status": new_booking.payment_status
         }
 
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
+        logger.exception("Database error while creating customer booking")
+
         raise HTTPException(
             status_code=500,
             detail="Unable to create reservation"
@@ -159,8 +186,6 @@ def cancel_customer_booking(
     current_user: dict = Depends(get_current_customer),
     db: Session = Depends(get_db)
 ):
-
-    # Find logged-in customer
     user = db.query(User).filter(
         User.email == current_user["email"]
     ).first()
@@ -171,7 +196,7 @@ def cancel_customer_booking(
             detail="Customer not found"
         )
 
-    # Find booking belonging to this customer only
+    # Only allow customers to access their own bookings.
     booking = db.query(Booking).filter(
         Booking.id == booking_id,
         Booking.user_id == user.id
@@ -183,7 +208,6 @@ def cancel_customer_booking(
             detail="Booking not found"
         )
 
-    # Prevent cancellation after check-in or checkout
     if booking.status in ["Checked In", "Checked Out"]:
         raise HTTPException(
             status_code=400,
@@ -204,8 +228,14 @@ def cancel_customer_booking(
 
     try:
         booking.status = "Cancelled"
+
         db.commit()
         db.refresh(booking)
+
+        logger.info(
+            "Customer booking cancelled successfully. Booking ID: %s",
+            booking.id
+        )
 
         return {
             "message": "Booking cancelled successfully",
@@ -213,10 +243,14 @@ def cancel_customer_booking(
             "status": booking.status
         }
 
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
+        logger.exception(
+            "Database error while cancelling booking ID: %s",
+            booking_id
+        )
+
         raise HTTPException(
             status_code=500,
             detail="Unable to cancel booking"
         )
-

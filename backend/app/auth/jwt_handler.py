@@ -1,23 +1,28 @@
+
 import os
+from datetime import datetime, timedelta, timezone
+
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 SECRET_KEY = os.getenv("HOTELHUB_SECRET_KEY")
 
-if not SECRET_KEY:
-    raise RuntimeError("HOTELHUB_SECRET_KEY environment variable is not set")
+if not SECRET_KEY or not SECRET_KEY.strip():
+    raise RuntimeError(
+        "HOTELHUB_SECRET_KEY environment variable is not set"
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 
-def create_access_token(data: dict):
+def create_access_token(data: dict) -> str:
     to_encode = data.copy()
 
-    expire = datetime.utcnow() + timedelta(
+    expire = datetime.now(timezone.utc) + timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES
     )
 
@@ -30,7 +35,6 @@ def create_access_token(data: dict):
     )
 
     return encoded_jwt
-
 
 
 def get_current_user(
@@ -46,14 +50,15 @@ def get_current_user(
         email = payload.get("sub")
         role = payload.get("role")
 
-        # Validate email and role claims
         if not isinstance(email, str) or not email.strip():
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token"
             )
 
-        if role not in {"admin", "customer"}:
+        if not isinstance(role, str) or role not in {
+            "admin", "customer"
+        }:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token"
@@ -71,8 +76,6 @@ def get_current_user(
         )
 
 
-
-# ADMIN authentication
 def get_current_admin(
     current_user: dict = Depends(get_current_user)
 ):
@@ -84,7 +87,7 @@ def get_current_admin(
 
     return current_user
 
-# CUSTOMER authentication
+
 def get_current_customer(
     current_user: dict = Depends(get_current_user)
 ):

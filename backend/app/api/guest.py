@@ -1,5 +1,8 @@
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+import logging
+
+from fastapi import APIRouter, Depends, Query, HTTPException, status
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.guest import Guest
@@ -8,9 +11,12 @@ from app.schemas.guest import GuestCreate, GuestUpdate
 from app.database.database import get_db
 from app.auth.jwt_handler import get_current_admin
 
+
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
+# ADMIN: View all guests
 @router.get("/guests")
 def get_guests(
     db: Session = Depends(get_db),
@@ -47,7 +53,11 @@ def get_guests(
     return result
 
 
-@router.post("/guests")
+# ADMIN: Create guest
+@router.post(
+    "/guests",
+    status_code=status.HTTP_201_CREATED
+)
 def create_guest(
     guest: GuestCreate,
     db: Session = Depends(get_db),
@@ -60,13 +70,34 @@ def create_guest(
         room_number=guest.room_number
     )
 
-    db.add(new_guest)
-    db.commit()
-    db.refresh(new_guest)
+    try:
+        db.add(new_guest)
+        db.commit()
+        db.refresh(new_guest)
 
-    return {"message": "Guest created successfully"}
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Guest record conflicts with existing data"
+        )
+
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Error creating guest")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create guest"
+        )
+
+    return {
+        "message": "Guest created successfully",
+        "guest_id": new_guest.id
+    }
 
 
+# ADMIN: Update guest
 @router.put("/guests/{guest_id}")
 def update_guest(
     guest_id: int,
@@ -79,18 +110,43 @@ def update_guest(
     ).first()
 
     if not existing_guest:
-        return {"message": "Guest not found"}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Guest not found"
+        )
 
-    existing_guest.guest_name = guest.guest_name
-    existing_guest.phone = guest.phone
-    existing_guest.email = guest.email
-    existing_guest.room_number = guest.room_number
+    try:
+        existing_guest.guest_name = guest.guest_name
+        existing_guest.phone = guest.phone
+        existing_guest.email = guest.email
+        existing_guest.room_number = guest.room_number
 
-    db.commit()
+        db.commit()
+        db.refresh(existing_guest)
 
-    return {"message": "Guest updated successfully"}
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Guest information conflicts with existing data"
+        )
+
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Error updating guest")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update guest"
+        )
+
+    return {
+        "message": "Guest updated successfully",
+        "guest_id": existing_guest.id
+    }
 
 
+# ADMIN: Delete guest
 @router.delete("/guests/{guest_id}")
 def delete_guest(
     guest_id: int,
@@ -103,27 +159,40 @@ def delete_guest(
 
     if not existing_guest:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Guest not found"
         )
 
-    # Check whether this guest has booking records
+    # Prevent deletion when booking records are linked
     linked_booking = db.query(Booking).filter(
         Booking.guest_id == guest_id
     ).first()
 
     if linked_booking:
         raise HTTPException(
-            status_code=409,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete guest because booking records are linked to this guest."
         )
 
-    db.delete(existing_guest)
-    db.commit()
+    try:
+        db.delete(existing_guest)
+        db.commit()
 
-    return {"message": "Guest deleted successfully"}
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Error deleting guest")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete guest"
+        )
+
+    return {
+        "message": "Guest deleted successfully"
+    }
 
 
+# ADMIN: Search guests
 @router.get("/guests/search")
 def search_guests(
     name: str = Query(None),
