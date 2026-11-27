@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database.database import get_db
 from app.models.booking import Booking
 from app.models.bill import Bill
 from app.models.restaurant_order import RestaurantOrder

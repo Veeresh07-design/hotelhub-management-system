@@ -17,7 +17,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-# PUBLIC: Get available rooms based on dates and guest count
+# PUBLIC: Get available rooms based on dates
 @router.get("/rooms/available")
 def get_available_rooms(
     check_in: date,
@@ -44,14 +44,11 @@ def get_available_rooms(
         ])
     ).all()
 
-    booked_room_ids = [
-        row[0] for row in overlapping_bookings
-    ]
+    booked_room_ids = [row[0] for row in overlapping_bookings]
 
-    # Find rooms with sufficient capacity and availability
+    # Find rooms available for the requested dates
     available_rooms = db.query(Room).filter(
         Room.id.notin_(booked_room_ids),
-        Room.capacity >= guests,
         Room.status.notin_([
             "Maintenance",
             "Cleaning",
@@ -65,7 +62,6 @@ def get_available_rooms(
             "room_number": room.room_number,
             "room_type": room.room_type,
             "floor": room.floor,
-            "capacity": room.capacity,
             "price": room.price,
             "status": room.status
         }
@@ -83,10 +79,7 @@ def get_rooms(
 
 
 # ADMIN: Add room
-@router.post(
-    "/rooms",
-    status_code=status.HTTP_201_CREATED
-)
+@router.post("/rooms", status_code=status.HTTP_201_CREATED)
 def post_rooms(
     room: RoomCreate,
     current_user: dict = Depends(get_current_admin),
@@ -115,7 +108,6 @@ def post_rooms(
     except SQLAlchemyError:
         db.rollback()
         logger.exception("Error adding room")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to add room"
@@ -135,9 +127,7 @@ def update_room(
     current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    db_room = db.query(Room).filter(
-        Room.id == id
-    ).first()
+    db_room = db.query(Room).filter(Room.id == id).first()
 
     if db_room is None:
         raise HTTPException(
@@ -165,7 +155,6 @@ def update_room(
     except SQLAlchemyError:
         db.rollback()
         logger.exception("Error updating room")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to update room"
@@ -184,9 +173,7 @@ def delete_room(
     current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    db_room = db.query(Room).filter(
-        Room.id == id
-    ).first()
+    db_room = db.query(Room).filter(Room.id == id).first()
 
     if db_room is None:
         raise HTTPException(
@@ -208,7 +195,6 @@ def delete_room(
     except SQLAlchemyError:
         db.rollback()
         logger.exception("Error deleting room")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to delete room"
@@ -239,13 +225,9 @@ def search_rooms(
     query = db.query(Room)
 
     if room_type:
-        query = query.filter(
-            Room.room_type == room_type
-        )
+        query = query.filter(Room.room_type == room_type)
 
     if status:
-        query = query.filter(
-            Room.status == status
-        )
+        query = query.filter(Room.status == status)
 
     return query.all()
