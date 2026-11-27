@@ -1,26 +1,57 @@
-from fastapi import APIRouter, Depends
+
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.guest import Guest
+from app.models.booking import Booking
 from app.schemas.guest import GuestCreate, GuestUpdate
 from app.database.database import get_db
-from fastapi import Query
+from app.auth.jwt_handler import get_current_admin
 
 router = APIRouter()
 
 
 @router.get("/guests")
 def get_guests(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     guests = db.query(Guest).all()
-    return guests
+
+    result = []
+
+    for guest in guests:
+        room_number = guest.room_number
+
+        # If room number is 0, get it from the latest booking
+        if room_number == 0:
+            latest_booking = (
+                db.query(Booking)
+                .filter(Booking.guest_id == guest.id)
+                .order_by(Booking.id.desc())
+                .first()
+            )
+
+            if latest_booking and latest_booking.room:
+                room_number = latest_booking.room.room_number
+
+        result.append({
+            "id": guest.id,
+            "user_id": guest.user_id,
+            "guest_name": guest.guest_name,
+            "email": guest.email,
+            "phone": guest.phone,
+            "room_number": room_number
+        })
+
+    return result
 
 
 @router.post("/guests")
 def create_guest(
     guest: GuestCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     new_guest = Guest(
         guest_name=guest.guest_name,
@@ -35,13 +66,17 @@ def create_guest(
 
     return {"message": "Guest created successfully"}
 
+
 @router.put("/guests/{guest_id}")
 def update_guest(
     guest_id: int,
     guest: GuestUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
-    existing_guest = db.query(Guest).filter(Guest.id == guest_id).first()
+    existing_guest = db.query(Guest).filter(
+        Guest.id == guest_id
+    ).first()
 
     if not existing_guest:
         return {"message": "Guest not found"}
@@ -55,28 +90,46 @@ def update_guest(
 
     return {"message": "Guest updated successfully"}
 
+
 @router.delete("/guests/{guest_id}")
 def delete_guest(
     guest_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
-    existing_guest = db.query(Guest).filter(Guest.id == guest_id).first()
+    existing_guest = db.query(Guest).filter(
+        Guest.id == guest_id
+    ).first()
 
     if not existing_guest:
-        return {"message": "Guest not found"}
+        raise HTTPException(
+            status_code=404,
+            detail="Guest not found"
+        )
+
+    # Check whether this guest has booking records
+    linked_booking = db.query(Booking).filter(
+        Booking.guest_id == guest_id
+    ).first()
+
+    if linked_booking:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete guest because booking records are linked to this guest."
+        )
 
     db.delete(existing_guest)
     db.commit()
 
     return {"message": "Guest deleted successfully"}
 
-from fastapi import Query
 
 @router.get("/guests/search")
 def search_guests(
     name: str = Query(None),
     email: str = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     query = db.query(Guest)
 

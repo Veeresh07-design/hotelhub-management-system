@@ -1,10 +1,11 @@
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 from app.models.menu import Menu
-from app.schemas.menu import MenuCreate
 from app.schemas.menu import MenuCreate, MenuUpdate
+from app.auth.jwt_handler import get_current_admin
 
 router = APIRouter(tags=["Menu"])
 
@@ -12,7 +13,8 @@ router = APIRouter(tags=["Menu"])
 @router.post("/menu")
 def add_menu_item(
     menu: MenuCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     new_item = Menu(
         item_name=menu.item_name,
@@ -30,12 +32,14 @@ def add_menu_item(
         "menu_id": new_item.id
     }
 
+
 @router.get("/menu")
 def get_menu(
     db: Session = Depends(get_db)
 ):
     menu_items = db.query(Menu).all()
     return menu_items
+
 
 @router.get("/menu/{menu_id}")
 def get_menu_item(
@@ -51,11 +55,13 @@ def get_menu_item(
 
     return menu_item
 
+
 @router.put("/menu/{menu_id}")
 def update_menu_item(
     menu_id: int,
     menu: MenuUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     menu_item = db.query(Menu).filter(Menu.id == menu_id).first()
 
@@ -76,10 +82,12 @@ def update_menu_item(
         "message": "Menu item updated successfully"
     }
 
+
 @router.delete("/menu/{menu_id}")
 def delete_menu_item(
     menu_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     menu_item = db.query(Menu).filter(Menu.id == menu_id).first()
 

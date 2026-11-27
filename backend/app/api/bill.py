@@ -1,29 +1,34 @@
-from fastapi import APIRouter, Depends
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from fastapi import Query
+from datetime import datetime
 
 from app.database.database import get_db
 from app.models.bill import Bill
 from app.models.booking import Booking
 from app.models.room import Room
-from datetime import datetime
 from app.models.restaurant_order import RestaurantOrder
 from app.models.order_item import OrderItem
+from app.auth.jwt_handler import get_current_admin
 
 router = APIRouter()
 
+
 @router.get("/bills")
 def get_bills(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     bills = db.query(Bill).all()
-    return bills\
+    return bills
+
 
 @router.get("/bills/search")
 def search_bills(
     payment_status: str = Query(None),
     booking_id: int = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     query = db.query(Bill)
 
@@ -35,10 +40,12 @@ def search_bills(
 
     return query.all()
 
+
 @router.get("/bills/{bill_id}")
 def get_bill(
     bill_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     bill = db.query(Bill).filter(Bill.id == bill_id).first()
 
@@ -49,10 +56,12 @@ def get_bill(
 
     return bill
 
+
 @router.put("/bills/pay/{bill_id}")
 def pay_bill(
     bill_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     bill = db.query(Bill).filter(Bill.id == bill_id).first()
 
@@ -68,6 +77,13 @@ def pay_bill(
 
     bill.payment_status = "Paid"
 
+    booking = db.query(Booking).filter(
+        Booking.id == bill.booking_id
+    ).first()
+
+    if booking:
+        booking.payment_status = "Paid"
+
     db.commit()
     db.refresh(bill)
 
@@ -75,26 +91,39 @@ def pay_bill(
         "message": "Payment successful"
     }
 
+
 @router.post("/bills/{booking_id}")
 def generate_bill(
     booking_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
-    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    booking = db.query(Booking).filter(
+        Booking.id == booking_id
+    ).first()
 
     if booking is None:
         return {
             "message": "Booking not found"
         }
 
-    room = db.query(Room).filter(Room.id == booking.room_id).first()
+    if booking.status != "Checked Out":
+        return {
+            "message": "Bill can only be generated after checkout"
+        }
+
+    room = db.query(Room).filter(
+        Room.id == booking.room_id
+    ).first()
 
     if room is None:
         return {
             "message": "Room not found"
         }
 
-    existing_bill = db.query(Bill).filter(Bill.booking_id == booking.id).first()
+    existing_bill = db.query(Bill).filter(
+        Bill.booking_id == booking.id
+    ).first()
 
     if existing_bill:
         return {
@@ -129,7 +158,7 @@ def generate_bill(
         room_charge=room_charge,
         restaurant_charge=restaurant_charge,
         total_amount=room_charge + restaurant_charge,
-        payment_status="Pending"
+        payment_status=booking.payment_status or "Pending"
     )
 
     db.add(bill)

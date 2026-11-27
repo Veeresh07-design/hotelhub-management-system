@@ -1,1 +1,126 @@
+
 @import "tailwindcss";
+
+:root {
+  font-family: "Inter", "Segoe UI", sans-serif;
+  color: #24313b;
+  background: #f7f6f2;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #f7f6f2;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Main admin content */
+.admin-content {
+  background: #f7f6f2;
+  min-height: calc(100vh - 88px);
+  margin-left: 16rem;
+  width: calc(100% - 16rem);
+}
+
+/* Fixed sidebar wrapper */
+.admin-sidebar-shell {
+  position: fixed;
+  top: 88px;
+  left: 0;
+  width: 16rem;
+  height: calc(100vh - 88px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 40;
+}
+
+/* Keep the existing sidebar design */
+.admin-sidebar-shell > * {
+  width: 100%;
+  min-height: 100%;
+}
+
+/* Premium cards */
+.premium-card {
+  background: #ffffff;
+  border: 1px solid #eae7df;
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgba(30, 42, 50, 0.04);
+}
+
+.premium-heading {
+  color: #172b36;
+  letter-spacing: -0.7px;
+}
+
+.premium-table th {
+  background: #f4f2ec;
+  color: #52616a;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+
+.premium-table td {
+  color: #34434d;
+  border-bottom: 1px solid #eeece6;
+}
+
+.premium-button {
+  background: #c5a46d;
+  color: #172b36;
+  border-radius: 9px;
+  padding: 10px 18px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.premium-button:hover {
+  background: #d4b781;
+  transform: translateY(-1px);
+}
+
+/* Mobile layout */
+@media (max-width: 768px) {
+  .admin-layout {
+    flex-direction: column;
+  }
+
+  .admin-sidebar-shell {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .admin-sidebar-shell > * {
+    width: 100% !important;
+    min-height: auto !important;
+  }
+
+  .admin-content {
+    width: 100%;
+    margin-left: 0;
+    padding: 20px !important;
+  }
+}

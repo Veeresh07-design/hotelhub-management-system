@@ -1,14 +1,16 @@
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field
 
 
 class MenuCreate(BaseModel):
-    item_name: str
-    category: str
-    price: float
+    item_name: str = Field(min_length=2, max_length=100)
+    category: str = Field(min_length=2, max_length=50)
+    price: float = Field(gt=0)
     availability: str = "Available"
 
+
 class MenuUpdate(BaseModel):
-    item_name: str
-    category: str
-    price: float
+    item_name: str = Field(min_length=2, max_length=100)
+    category: str = Field(min_length=2, max_length=50)
+    price: float = Field(gt=0)
     availability: str

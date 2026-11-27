@@ -9,5 +9,6 @@ from app.models.bill import Bill
 from app.models.menu import Menu
 from app.models.restaurant_order import RestaurantOrder
 from app.models.order_item import OrderItem
+from app.models.housekeeping import Housekeeping
 
 Base.metadata.create_all(bind=engine)

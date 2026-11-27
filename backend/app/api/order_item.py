@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -6,6 +7,7 @@ from app.models.order_item import OrderItem
 from app.models.restaurant_order import RestaurantOrder
 from app.models.menu import Menu
 from app.schemas.order_item import OrderItemCreate
+from app.auth.jwt_handler import get_current_admin
 
 router = APIRouter(tags=["Order Items"])
 
@@ -13,7 +15,8 @@ router = APIRouter(tags=["Order Items"])
 @router.post("/order-items")
 def add_order_item(
     item: OrderItemCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     order = db.query(RestaurantOrder).filter(
         RestaurantOrder.id == item.restaurant_order_id
@@ -28,6 +31,11 @@ def add_order_item(
 
     if menu is None:
         return {"message": "Menu item not found"}
+
+    if item.quantity <= 0:
+        return {
+            "message": "Quantity must be greater than zero"
+        }
 
     subtotal = menu.price * item.quantity
 
@@ -48,10 +56,12 @@ def add_order_item(
         "subtotal": subtotal
     }
 
+
 @router.get("/restaurant-orders/{restaurant_order_id}/total")
 def get_restaurant_order_total(
     restaurant_order_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
 ):
     order = db.query(RestaurantOrder).filter(
         RestaurantOrder.id == restaurant_order_id

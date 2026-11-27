@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String
+from sqlalchemy.orm import relationship
 from app.models.base import Base
 
 
@@ -10,4 +11,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
 
-    role = Column(String, default="user")
+    role = Column(String, default="customer", nullable=False)
+
+    bookings = relationship("Booking", back_populates="user")
+    guest = relationship("Guest", back_populates="user", uselist=False)

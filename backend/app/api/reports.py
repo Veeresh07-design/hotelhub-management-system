@@ -1,16 +1,21 @@
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
-
 from app.models.booking import Booking
 from app.models.bill import Bill
 from app.models.restaurant_order import RestaurantOrder
+from app.auth.jwt_handler import get_current_admin
 
 router = APIRouter(tags=["Reports"])
 
+
 @router.get("/reports/bookings")
-def booking_report(db: Session = Depends(get_db)):
+def booking_report(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
+):
     bookings = db.query(Booking).all()
 
     checked_in = len(
@@ -35,9 +40,12 @@ def booking_report(db: Session = Depends(get_db)):
         "bookings": bookings
     }
 
-@router.get("/reports/revenue")
-def revenue_report(db: Session = Depends(get_db)):
 
+@router.get("/reports/revenue")
+def revenue_report(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
+):
     bills = db.query(Bill).all()
 
     total_revenue = sum(bill.total_amount for bill in bills)
@@ -63,8 +71,12 @@ def revenue_report(db: Session = Depends(get_db)):
         "bills": bills
     }
 
+
 @router.get("/reports/restaurant")
-def restaurant_report(db: Session = Depends(get_db)):
+def restaurant_report(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin)
+):
     restaurant_orders = db.query(RestaurantOrder).all()
 
     completed_orders = len(
