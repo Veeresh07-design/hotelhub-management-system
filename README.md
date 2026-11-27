@@ -134,6 +134,31 @@ hotelhub-management-system/
 └── README.md
 ```
 
+
+## Application Screenshots
+
+### Admin Dashboard
+![Admin Dashboard](screenshots/admin-dashboard.png)
+
+### Customer Rooms
+![Customer Rooms](screenshots/customer-rooms.png)
+
+### Booking Management
+![Booking Management](screenshots/booking-management.png)
+
+### Booking Statuses
+![Booking Statuses](screenshots/booking-status.png)
+
+### Restaurant Management
+![Restaurant Management](screenshots/restaurant-management.png)
+
+### Billing and Payments
+![Billing and Payments](screenshots/billing.png)
+
+### Reports and Analytics
+![Reports and Analytics](screenshots/reports.png)
+
+
 ## Installation and Setup
 
 ### Prerequisites
