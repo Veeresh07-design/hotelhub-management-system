@@ -1,11 +1,13 @@
+
 import axios from "axios";
 
 const api = axios.create({
   baseURL: "http://127.0.0.1:8000",
 });
 
+// Attach JWT token to every API request
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("access_token");
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -13,5 +15,21 @@ api.interceptors.request.use((config) => {
 
   return config;
 });
+
+// Handle expired or invalid authentication
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("access_token");
+
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export default api;

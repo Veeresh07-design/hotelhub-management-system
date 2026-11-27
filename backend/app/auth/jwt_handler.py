@@ -1,18 +1,28 @@
+
+import os
+from datetime import datetime, timedelta, timezone
+
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-SECRET_KEY = "hotelhub_secret_key"
+SECRET_KEY = os.getenv("HOTELHUB_SECRET_KEY")
+
+if not SECRET_KEY or not SECRET_KEY.strip():
+    raise RuntimeError(
+        "HOTELHUB_SECRET_KEY environment variable is not set"
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
-def create_access_token(data: dict):
+
+def create_access_token(data: dict) -> str:
     to_encode = data.copy()
 
-    expire = datetime.utcnow() + timedelta(
+    expire = datetime.now(timezone.utc) + timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES
     )
 
@@ -25,6 +35,7 @@ def create_access_token(data: dict):
     )
 
     return encoded_jwt
+
 
 def get_current_user(
     token: str = Depends(oauth2_scheme)
@@ -39,19 +50,51 @@ def get_current_user(
         email = payload.get("sub")
         role = payload.get("role")
 
-        if email is None:
+        if not isinstance(email, str) or not email.strip():
             raise HTTPException(
-                status_code=401,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token"
             )
 
-        return{
+        if not isinstance(role, str) or role not in {
+            "admin", "customer"
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+        return {
             "email": email,
             "role": role
         }
 
     except JWTError:
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
         )
+
+
+def get_current_admin(
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access only"
+        )
+
+    return current_user
+
+
+def get_current_customer(
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] != "customer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Customer access only"
+        )
+
+    return current_user
